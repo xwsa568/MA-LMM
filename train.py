@@ -31,6 +31,9 @@ from lavis.processors import *
 from lavis.runners import *
 from lavis.tasks import *
 
+from utils.config import Config as Model_Config
+from models.videochat_vicuna.videochat2_it_vicuna import VideoChat2_it_vicuna
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Training")
 
@@ -128,7 +131,11 @@ def main():
 
     task = tasks.setup_task(cfg)
     datasets = task.build_datasets(cfg)
-    model = task.build_model(cfg)
+
+    config_file = "lavis/configs/config.json"
+    model_cfg = Model_Config.from_file(config_file)
+
+    model = VideoChat2_it_vicuna(model_cfg.model)
 
     runner = get_runner_class(cfg)(
         cfg=cfg, job_id=job_id, task=task, model=model, datasets=datasets

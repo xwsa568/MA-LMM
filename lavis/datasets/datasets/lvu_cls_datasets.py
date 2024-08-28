@@ -1,10 +1,3 @@
-"""
- Copyright (c) 2022, salesforce.com, inc.
- All rights reserved.
- SPDX-License-Identifier: BSD-3-Clause
- For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
-"""
-
 import os
 import json
 import re
@@ -37,6 +30,9 @@ class LVUCLSDataset(VideoQADataset):
         self.fps = 10
         self.annotation = {}
         self.stride = stride
+        self.history = history
+        self.num_frames = num_frames * 6  # 8 프레임의 스니펫 구성, 연속된 스니펫은 2프레임 중복됨
+
         for video_id in self.gt_dict:
             if task in self.gt_dict[video_id]:
                 duration = self.gt_dict[video_id]['duration']
@@ -45,15 +41,13 @@ class LVUCLSDataset(VideoQADataset):
                 label_after_process = text_processor(label)
                 assert label == label_after_process, "{} not equal to {}".format(label, label_after_process)
                 self.annotation[f'{video_id}_0'] = {'video_id': video_id, 'start': 0, 'label': label_after_process, 'duration': duration, 'video_length': video_length, 'answer': self.gt_dict[video_id][f'{task}_answer']}
-                for start in range(self.stride, duration - history + 1, self.stride):
+                for start in range(self.stride * (self.num_frames - 2), duration - history + 1, self.stride * (self.num_frames - 2)):
                     video_start_id = f'{video_id}_{start}'
                     self.annotation[video_start_id] = {'video_id': video_id, 'start': start, 'label': label_after_process, 'duration': duration, 'video_length': video_length, 'answer': self.gt_dict[video_id][f'{task}_answer']}
         
         self.data_list = list(self.annotation.keys())
         self.data_list.sort()
 
-        self.history = history
-        self.num_frames = num_frames
         self.vis_processor = vis_processor
         self.text_processor = text_processor
 
@@ -66,13 +60,20 @@ class LVUCLSDataset(VideoQADataset):
         start_frame_index = int(start_time * self.fps)
         end_frame_index = min(int(end_time * self.fps), self.annotation[video_start_id]['video_length'] - 1)
         selected_frame_index = np.rint(np.linspace(start_frame_index, end_frame_index, self.num_frames)).astype(int).tolist()
-        # print(start_frame_index, end_frame_index, selected_frame_index, start_time, end_time)
+
         frame_list = []
         for frame_index in selected_frame_index:
             frame = Image.open(os.path.join(self.vis_root, self.annotation[video_start_id]['video_id'], "frame{:06d}.jpg".format(frame_index + 1))).convert("RGB")
             frame = pil_to_tensor(frame).to(torch.float32)
             frame_list.append(frame)
-        video = torch.stack(frame_list, dim=1)
+
+        # 여기서, 8 프레임을 하나의 스니펫으로 묶고, 2 프레임씩 중복된 스니펫을 생성
+        video_snippets = []
+        for i in range(0, len(frame_list) - 6, 6):  # 6 프레임씩 슬라이드
+            snippet = torch.stack(frame_list[i:i+8], dim=1)
+            video_snippets.append(snippet)
+        
+        video = torch.stack(video_snippets, dim=1)
         video = self.vis_processor(video)
 
         text_input = self.text_processor(f'what is the {self.task} of the movie?')
@@ -104,13 +105,20 @@ class LVUCLSEvalDataset(LVUCLSDataset):
         start_frame_index = int(start_time * self.fps)
         end_frame_index = min(int(end_time * self.fps), self.annotation[video_start_id]['video_length'] - 1)
         selected_frame_index = np.rint(np.linspace(start_frame_index, end_frame_index, self.num_frames)).astype(int).tolist()
-        # print(start_frame_index, end_frame_index, selected_frame_index, start_time, end_time)
+
         frame_list = []
         for frame_index in selected_frame_index:
             frame = Image.open(os.path.join(self.vis_root, self.annotation[video_start_id]['video_id'], "frame{:06d}.jpg".format(frame_index + 1))).convert("RGB")
             frame = pil_to_tensor(frame).to(torch.float32)
             frame_list.append(frame)
-        video = torch.stack(frame_list, dim=1)
+
+        # 8 프레임을 하나의 스니펫으로 묶고, 2 프레임씩 중복된 스니펫을 생성
+        video_snippets = []
+        for i in range(0, len(frame_list) - 6, 6):
+            snippet = torch.stack(frame_list[i:i+8], dim=1)
+            video_snippets.append(snippet)
+        
+        video = torch.stack(video_snippets, dim=1)
         video = self.vis_processor(video)
 
         text_input = self.text_processor(f'what is the {self.task} of the movie?')
@@ -123,4 +131,3 @@ class LVUCLSEvalDataset(LVUCLSDataset):
             "image_id": video_start_id,
             "question_id": video_start_id,
         }
-

@@ -1,6 +1,6 @@
 
 checkpoint_path=$1
-torchrun --nproc_per_node=4 \
+torchrun --nproc_per_node=1 \
     --master_port=34650 \
     train.py \
     --cfg-path lavis/projects/malmm/cls_breakfast.yaml \
